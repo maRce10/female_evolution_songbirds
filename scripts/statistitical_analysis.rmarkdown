@@ -1,0 +1,998 @@
+---
+title: Statistic analysis
+subtitle: Female song evolution in songbirds
+author: <a href="https://marce10.github.io/">Marcelo Araya Salas</a>
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 2
+toc-location: left
+number-sections: true
+highlight-style: pygments
+format:
+  html:
+    df-print: kable
+    code-fold: show
+    code-tools: true
+    css: qmd.css
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r add link to github repo, echo = FALSE, results='asis'}
+
+# print link to github repo if any
+if (file.exists("./.git/config")){
+  config <- readLines("./.git/config")
+  url <- grep("url",  config, value = TRUE)
+  url <- gsub("\\turl = |.git$", "", url)
+  cat("\nSource code and data found at [", url, "](", url, ")", sep = "")
+  }
+
+```
+
+```{r setup style, echo = FALSE, message = FALSE, warning=FALSE}
+
+# options to customize chunk outputs
+knitr::opts_chunk$set(
+  tidy.opts = list(width.cutoff = 65), 
+  tidy = TRUE,
+  message = FALSE, 
+  warning = FALSE
+ )
+
+```
+
+
+::: {.alert .alert-info}
+
+# Purpose {.unnumbered .unlisted}
+
+- Run phylogenetic regression models on female song evolution
+
+:::
+
+::: {.alert .alert-warning}
+
+# Report overview {.unnumbered .unlisted}
+
+- [Run brms models](Run brms models)
+- [Results]
+    - [Predation models](#predation)
+    - [Dale data models](#dale)
+    - [Duet models](#duet)
+    - [Posterior predictive checks]
+- [Takeaways](#takeaways)
+
+:::
+
+# Analysis flowchart {.unnumbered .unlisted}
+
+```{mermaid, fig.align = "center"}
+flowchart
+  A[Read data] --> B(Format data) 
+  B --> C(Graphs)
+  C --> D(Statistical analysis)
+  D --> E(Model summary) 
+
+style A fill:#44015466
+style B fill:#3E4A894D
+style C fill:#26828E4D
+style D fill:#6DCD594D
+
+```
+
+
+
+# Load packages {.unnumbered .unlisted}
+
+```{r load packages}
+
+# knitr is require for creating html/pdf/word reports
+# formatR is used for soft-wrapping code
+
+# install/ load packages
+sketchy::load_packages(
+  packages = c(
+    "knitr",
+    "formatR",
+    "brms",
+    "rstan",
+    "rstanarm",
+    "rstantools",
+    "brmsish",
+    "ggplot2",
+    "cowplot",
+    "viridis"
+  )
+)
+
+source("~/Dropbox/R_package_testing/brmsish/R/read_summary.R")
+source("~/Dropbox/R_package_testing/brmsish/R/helpers.R")
+
+source("~/Dropbox/R_package_testing/brmsish/R/extended_summary.R")
+
+```
+
+
+# Read trees
+
+```{r}
+#| eval: false
+
+trees <- read.nexus("./tree_hacket_allOTUs/output.nex")
+
+trees <- trees[1:25]
+
+```
+
+
+
+# Run brms models
+
+Phylogenetic mixed models of occurrance and elab with natural history traits (predation)
+
+
+```{r}
+#| eval: false
+
+#### PREDATION RATE BRMS MODELS #
+set.seed(123)
+parallel <- 15
+thin <- 100
+
+### Present/absent running on a population of trees
+df_pred <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_pred.RDS")
+
+prsabs_pred_multibrm <- phylogenetic_uncertainty(
+  formula = prs_abs ~
+    DPR + (1 |
+             gr(tip.labels, cov = A)),
+  data = df_pred,
+  phylos = prep_tree(trees,
+                     spp = df_pred$tip.labels),
+  family = bernoulli(link = "logit"),
+  chains = 1,
+  cores = 1,
+  iter = 20000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "prsabs_pred_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### OCCURRENCE running on a population of trees
+df_pred_occ <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_pred_occ.RDS")
+
+occ_pred_multibrm <- phylogenetic_uncertainty(
+  formula = occ ~ DPR +
+    (1 |
+       gr(tip.labels, cov = A)),
+  data = df_pred_occ,
+  phylos = prep_tree(trees,
+                     spp = df_pred_occ$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 15000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "occ_pred_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### ELABORATION running on a population of trees
+df_pred_elb <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_pred_elb.RDS")
+
+elb_pred_multibrm <- phylogenetic_uncertainty(
+  formula = elb ~ DPR +
+    (1 |
+       gr(tip.labels, cov = A)),
+  data = df_pred_elb,
+  phylos = prep_tree(trees,
+                     spp = df_pred_elb$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 14000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "elb_pred_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### SONG LENGTH running on a population of trees
+df_pred_len <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_pred_len.RDS")
+
+len_pred_multibrm <- phylogenetic_uncertainty(
+  formula = len ~ DPR +
+    (1 |
+       gr(tip.labels, cov = A)),
+  data = df_pred_len,
+  phylos = prep_tree(trees,
+                     spp = df_pred_len$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 15000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "len_pred_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+```
+
+
+Phylogenetic mixed models - ORIGINAL FULL MODELS (Dale)
+
+
+```{r}
+#| eval: false
+
+iter <- 10000
+set.seed(123)
+parallel <- 5
+thin <- 100
+
+
+### Present/absent
+df_prsabs <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_prsabs.RDS")
+
+df_prsabs$mating_system <-
+  factor(as.character(df_prsabs$mating_system))
+df_prsabs$paternal_care <-
+  factor(as.character(df_prsabs$paternal_care))
+df_prsabs$cooperation <- factor(as.character(df_prsabs$cooperation))
+df_prsabs$Migratory <- factor(as.character(df_prsabs$Migratory))
+df_prsabs$Territory <- factor(as.character(df_prsabs$Territory))
+
+phylogenetic_uncertainty(
+  formula = prs_abs ~ log_CRC_species_mass +
+    SSD_wing + mating_system + paternal_care + cooperation + Migratory +
+    Territory + degrees_from_equator + (1 |
+                                          gr(tip.labels, cov = A)),
+  data = df_prsabs,
+  phylos = prep_tree(trees, spp = df_prsabs$tip.labels),
+  family = bernoulli(link = "logit"),
+  chains = 1,
+  cores = 1,
+  iter = 40000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "prsabs_dale_factor_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+phylogenetic_uncertainty(
+  formula = prs_abs ~ log_CRC_species_mass +
+    SSD_wing + mating_system * paternal_care + cooperation + Migratory +
+    Territory + degrees_from_equator + (1 |
+                                          gr(tip.labels, cov = A)),
+  data = df_prsabs,
+  phylos = prep_tree(trees, spp = df_prsabs$tip.labels),
+  family = bernoulli(link = "logit"),
+  chains = 1,
+  cores = 1,
+  iter = 40000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "prsabs_dale_intr_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### OCCURRENCE
+df_occ <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_occ.RDS")
+
+df_occ$mating_system <- factor(as.character(df_occ$mating_system))
+df_occ$paternal_care <- factor(as.character(df_occ$paternal_care))
+df_occ$cooperation <- factor(as.character(df_occ$cooperation))
+df_occ$Migratory <- factor(as.character(df_occ$Migratory))
+df_occ$Territory <- factor(as.character(df_occ$Territory))
+
+
+is.ordered(df_occ$Migratory)
+
+phylogenetic_uncertainty(
+  formula = occ ~ log_CRC_species_mass + SSD_wing +
+    mating_system + paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_occ,
+  phylos = prep_tree(trees, spp = df_occ$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 18000,
+  prior = priors,
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "occ_dale_factor_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+phylogenetic_uncertainty(
+  formula = occ ~ log_CRC_species_mass + SSD_wing +
+    mating_system * paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_occ,
+  phylos = prep_tree(trees, spp = df_occ$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 18000,
+  prior = priors,
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "occ_dale_intr_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+
+### ELABORATION
+df_elb <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_elb.RDS")
+
+df_elb$mating_system <- factor(as.character(df_elb$mating_system))
+df_elb$paternal_care <- factor(as.character(df_elb$paternal_care))
+df_elb$cooperation <- factor(as.character(df_elb$cooperation))
+df_elb$Migratory <- factor(as.character(df_elb$Migratory))
+df_elb$Territory <- factor(as.character(df_elb$Territory))
+
+
+
+phylogenetic_uncertainty(
+  formula = elb ~ log_CRC_species_mass + SSD_wing +
+    mating_system + paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_elb,
+  phylos = prep_tree(trees, spp = df_elb$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 20000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "elb_dale_factor_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+
+
+phylogenetic_uncertainty(
+  formula = elb ~ log_CRC_species_mass + SSD_wing +
+    mating_system * paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_elb,
+  phylos = prep_tree(trees, spp = df_elb$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 20000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "elb_dale_intr_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### SONG LENGTH
+df_len <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_len.RDS")
+
+df_len$mating_system <- factor(as.character(df_len$mating_system))
+df_len$paternal_care <- factor(as.character(df_len$paternal_care))
+df_len$cooperation <- factor(as.character(df_len$cooperation))
+df_len$Migratory <- factor(as.character(df_len$Migratory))
+df_len$Territory <- factor(as.character(df_len$Territory))
+
+
+phylogenetic_uncertainty(
+  formula = len ~ log_CRC_species_mass + SSD_wing +
+    mating_system + paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_len,
+  phylos = prep_tree(trees, spp = df_len$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 35000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "len_dale_factor_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+phylogenetic_uncertainty(
+  formula = len ~ log_CRC_species_mass + SSD_wing +
+    mating_system * paternal_care + cooperation + Migratory + Territory +
+    degrees_from_equator + (1 |
+                              gr(tip.labels, cov = A)),
+  data = df_len,
+  phylos = prep_tree(trees, spp = df_len$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 35000,
+  prior = priors,
+  control = list(adapt_delta = 0.99,
+                 max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "len_dale_intr_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+```
+
+
+Phylogenetic mixed models of female song vs duets (duet)
+
+
+```{r}
+#| eval: false
+
+set.seed(123)
+parallel <- 5
+thin <- 100
+
+## TOBIAS DUET DATA BRMS MODELS #
+df_duet <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_duet.RDS")
+
+phylogenetic_uncertainty(
+  formula = prs_abs ~ Duet + (1 | gr(tip.labels,
+                                     cov = A)),
+  data = df_duet,
+  phylos = prep_tree(trees, spp = df_duet$tip.labels),
+  family = bernoulli(link = "logit"),
+  chains = 1,
+  cores = 1,
+  iter = 25000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "prsabs_duet_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+################################################ DUET vs FemSong
+################################################ Natural Hist
+################################################ MCMCglmm MODELS
+################################################ #
+
+df_duet$mating_system <- factor(as.character(df_duet$mating_system))
+df_duet$paternal_care <- factor(as.character(df_duet$paternal_care))
+df_duet$cooperation <- factor(as.character(df_duet$cooperation))
+df_duet$Migratory <- factor(as.character(df_duet$Migratory))
+df_duet$Territory <- factor(as.character(df_duet$Territory))
+
+### ORDINAL FEMALE SONG / DUET SCORE
+phylogenetic_uncertainty(
+  formula = prs_abs_duet ~ log_CRC_species_mass +
+    SSD_wing + mating_system + paternal_care + cooperation + Migratory +
+    Territory + degrees_from_equator + (1 |
+                                          gr(tip.labels, cov = A)),
+  data = df_duet,
+  phylos = prep_tree(trees, spp = df_duet$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 10000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "prs_abs_duet_factor_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+### OCCURRENCE
+df_duet_occ <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_duet_occ.RDS")
+
+phylogenetic_uncertainty(
+  formula = occ ~ Duet + (1 | gr(tip.labels,
+                                 cov = A)),
+  data = df_duet_occ,
+  phylos = prep_tree(trees, spp = df_duet_occ$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 15000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "occ_duet_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+
+### ELABORATION
+df_duet_elb <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_duet_elb.RDS")
+
+phylogenetic_uncertainty(
+  formula = elb ~ Duet + (1 | gr(tip.labels,
+                                 cov = A)),
+  data = df_duet_elb,
+  phylos = prep_tree(trees, spp = df_duet_elb$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 15000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "elb_duet_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+
+### SONG LENGTH
+df_duet_len <-
+  readRDS("M-FsongOrdinal&AllNatHist_ForFinalAnalysis_v4_duet_len.RDS")
+
+phylogenetic_uncertainty(
+  formula = len ~ Duet + (1 | gr(tip.labels,
+                                 cov = A)),
+  data = df_duet_len,
+  phylos = prep_tree(trees, spp = df_duet_len$tip.labels),
+  family = cumulative("probit"),
+  chains = 1,
+  cores = 1,
+  iter = 15000,
+  prior = priors,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  parallel = parallel,
+  init = 0,
+  thin = thin,
+  model.name = "len_duet_multibrm",
+  save.model = TRUE,
+  single.model = FALSE,
+  path = "./models"
+)
+
+```
+
+```{r}
+dirs <- list.dirs(path = "/media/m/Expansion/Projects/temporary")
+dirs <- dirs[nchar(dirs) > 45]
+
+gsub.pat <-
+  c(
+    "b_",
+    "log_CRC_species_mass",
+    "SSD_wing",
+    "degrees_from_equator",
+    "mating_system1",
+    "mating_system2",
+    "mating_system3",
+    "paternal_care1",
+    "cooperation1",
+    "Migratory1",
+    "Migratory2",
+    "Territory2",
+    "Territory3",
+    "DPR"
+  )
+gsub.rep <-
+  c(
+    "",
+    "Log mass",
+    "Sexual size dimorphism",
+    "Breeding latitude",
+    "Mating system\n(<5% polygyny)",
+    "Mating system\n(5-20% polygyny)",
+    "Mating system\n(>20% polygyny)",
+    "Paternal care\n(yes)",
+    "Cooperative breeding\n(yes)",
+    "Migration\n(partial)",
+    "Migration\n(full)",
+    "Territoriality\n(seasonal)",
+    "Territoriality\n(year-round)",
+    "Daily nest\npredation rate"
+  )
+
+for (i in dirs)
+  combine_model_rds(
+    path = i,
+    dest.path = "./100_tree_models",
+    overwrite = FALSE,
+    suffix = "-100_combined_model",
+    check_data = FALSE,
+    summary = TRUE,
+    model.name = basename(gsub("-100_combined_model.RDS",
+                               "", i)),
+    remove.intercepts = TRUE,
+    gsub.pattern = gsub.pat,
+    gsub.replacement = gsub.rep,
+    highlight = TRUE
+  )
+```
+
+
+## Save model results
+
+
+```{r}
+#| eval: false
+
+models <-
+  list.files(path = "./100_tree_models",
+             pattern = "100_combined_model.RDS$",
+             full.names = TRUE)
+
+gsub.pat <-
+  c(
+    "b_",
+    "log_CRC_species_mass",
+    "SSD_wing",
+    "degrees_from_equator",
+    "mating_system1",
+    "mating_system2",
+    "mating_system3",
+    "paternal_care1",
+    "cooperation1",
+    "Migratory1",
+    "Migratory2",
+    "Territory2",
+    "Territory3",
+    "DPR"
+  )
+
+gsub.rep <-
+  c(
+    "",
+    "Log mass",
+    "Sexual size dimorphism",
+    "Breeding latitude",
+    "Mating system\n(<5% polygyny)",
+    "Mating system\n(5-20% polygyny)",
+    "Mating system\n(>20% polygyny)",
+    "Paternal care\n(yes)",
+    "Cooperative breeding\n(yes)",
+    "Migration\n(partial)",
+    "Migration\n(full)",
+    "Territoriality\n(seasonal)",
+    "Territoriality\n(year-round)",
+    "Daily nest\npredation rate"
+  )
+
+for (i in models) {
+  print(i)
+  html_summary(
+    read.file = i,
+    model.name = basename(gsub("-100_combined_model.RDS",
+                               "", i)),
+    remove.intercepts = TRUE,
+    dest.path = "./100_tree_models",
+    save = TRUE,
+    gsub.pattern = gsub.pat,
+    gsub.replacement = gsub.rep,
+    highlight = TRUE
+  )
+}
+```
+
+
+# Results
+
+## Predation
+
+
+```{r}
+#| eval: true
+#| results: asis
+
+dirs <- list.dirs("./", full.names = FALSE)
+dirs <- dirs[-1]
+
+pred_dirs <- grep("pred", dirs, value = TRUE)
+for (i in pred_dirs) read_summary(paste0("./", i), highlight = TRUE, relative.path = TRUE)
+  
+```
+
+
+## Dale
+
+
+```{r}
+#| eval: true
+#| results: asis
+
+dale_dirs <- grep("dale", dirs, value = TRUE)
+for (i in dale_dirs) read_summary(paste0("./", i), highlight = TRUE, relative.path = TRUE)
+
+```
+
+
+
+## Duet
+
+
+```{r}
+#| eval: true
+#| results: asis
+
+duet_dirs <- grep("duet", dirs, value = TRUE)
+for (i in duet_dirs) read_summary(paste0("./", i), highlight = TRUE, relative.path = TRUE)
+
+```
+
+
+
+## Posterior predictive checks
+
+### Predation
+
+```{r}
+model_list <- list.files(path = "/media/m/Expansion/Projects/Ongoing/evolution_of_song_dimorphism/100_tree_models/", full.names = TRUE, pattern = "RDS$")
+
+model_list <- grep("pred", model_list, value = TRUE)
+
+names(model_list) <- gsub("-100_combined_model.RDS", "", basename(model_list))
+
+ndraws <- 20
+
+for (i in seq_len(length(model_list))) {
+    cat('\n\n## ', names(model_list)[i], '\n\n')
+    
+    fit <- readRDS(model_list[[i]])
+    ppc_dens <-
+        pp_check(fit,
+                 ndraws = ndraws,
+                 type = 'dens_overlay')  # shows dens_overlay plot by default
+    pp_mean <-
+        pp_check(
+            fit,
+            type = "stat",
+            stat = "mean",
+            ndraws = ndraws
+        )
+    pp_scat <-
+        pp_check(fit,
+                 type = "scatter_avg",
+                 ndraws = ndraws)
+    
+    
+    pp_stat2 <- pp_check(fit, type = "stat_2d", ndraws = ndraws)
+    
+        plot_l <-
+        list(ppc_dens, pp_mean, pp_scat,pp_stat2)
+
+    plot_l <-
+        lapply(plot_l, function(x)
+            x  + scale_color_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + scale_fill_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + theme_classic())     
+
+    print(plot_grid(plotlist = plot_l, ncol = 2))
+}
+
+```
+
+
+### Duet
+
+```{r}
+#| eval: true
+#| results: asis
+
+model_list <- list.files(path = "/media/m/Expansion/Projects/Ongoing/evolution_of_song_dimorphism/100_tree_models/", full.names = TRUE, pattern = "RDS$")
+
+model_list <- grep("duet", model_list, value = TRUE)
+
+names(model_list) <- gsub("-100_combined_model.RDS", "", basename(model_list))
+
+ndraws <- 20
+
+for (i in seq_len(length(model_list))) {
+    cat('\n\n## ', names(model_list)[i], '\n\n')
+    
+    fit <- readRDS(model_list[[i]])
+    ppc_dens <-
+        pp_check(fit,
+                 ndraws = ndraws,
+                 type = 'dens_overlay_grouped',
+                 group = "Duet")  # shows dens_overlay plot by default
+    pp_mean <-
+        pp_check(
+            fit,
+            type = "stat_grouped",
+            stat = "mean",
+            group = "Duet",
+            ndraws = ndraws
+        )
+    pp_scat <-
+        pp_check(fit,
+                 type = "scatter_avg_grouped",
+                 group = "Duet",
+                 ndraws = ndraws)
+    
+    pp_stat2 <- pp_check(fit, type = "stat_2d", ndraws = ndraws)
+    
+    plot_l <-
+        list(ppc_dens, pp_mean, pp_scat,  pp_stat2)
+    
+    plot_l <-
+        lapply(plot_l, function(x)
+            x  + scale_color_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + scale_fill_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + theme_classic())     
+
+    print(plot_grid(plotlist = plot_l, ncol = 2))
+}
+
+```
+
+
+### Dale
+
+```{r}
+model_list <- list.files(path = "/media/m/Expansion/Projects/Ongoing/evolution_of_song_dimorphism/100_tree_models/", full.names = TRUE, pattern = "RDS$")
+
+model_list <- grep("dale", model_list, value = TRUE)
+
+names(model_list) <- gsub("-100_combined_model.RDS", "", basename(model_list))
+
+ndraws <- 20
+
+for (i in seq_len(length(model_list))) {
+    cat('\n\n## ', names(model_list)[i], '\n\n')
+    
+    fit <- readRDS(model_list[[i]])
+    ppc_dens <-
+        pp_check(fit,
+                 ndraws = ndraws,
+                 type = 'dens_overlay')  # shows dens_overlay plot by default
+    pp_mean <-
+        pp_check(
+            fit,
+            type = "stat",
+            stat = "mean",
+            ndraws = ndraws
+        )
+    pp_scat <-
+        pp_check(fit,
+                 type = "scatter_avg",
+                 ndraws = ndraws)
+    
+    
+    pp_stat2 <- pp_check(fit, type = "stat_2d", ndraws = ndraws)
+    
+        plot_l <-
+        list(ppc_dens, pp_mean, pp_scat,pp_stat2)
+
+    plot_l <-
+        lapply(plot_l, function(x)
+            x  + scale_color_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + scale_fill_viridis_d(
+                begin = 0.1,
+                end = 0.8,
+                alpha = 0.5
+            ) + theme_classic())     
+
+    print(plot_grid(plotlist = plot_l, ncol = 2))
+}
+
+```
+
+
+
+::: {.alert .alert-success}
+
+# Takeaways {.unnumbered .unlisted}
+
+- Complex scenario in which many ecological/evolutionary processes shaped female song 
+::: 
+
+---
+
+
+# Session information {.unnumbered .unlisted}
+
+
+```{r session info, echo=F}
+
+sessionInfo()
+
+```
+
